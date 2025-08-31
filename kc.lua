@@ -776,7 +776,7 @@ local fpsCounter,lastFPS,fpsAccum = 0,60,0
 RunService.RenderStepped:Connect(function(dt)
   if not hasDrawing then return end
   watermark.Visible=true
-  watermark.Text=("KittenWare  |  %s"):format(os.date("%H:%M:%S"))
+  watermark.Text=("KittenWare - Made by list  |  %s"):format(os.date("%H:%M:%S"))
   watermark.Position=Vector2.new(10,8)
 
   if hud.showStats then
