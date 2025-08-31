@@ -1,3 +1,21 @@
+--[[
+  KittenWare | 2025 — Client-Side Suite
+  | No Recoil
+  | ESP++ (Players: Skeleton | Corner & Filled Boxes | Tracers | Names | Health | Distance | Item ESP | Passive tag)
+  | ESP++ (Drones: finds any Model named "DroneModel" anywhere | Box | Label | Tracer | Distance)
+  | Aimbot (FOV | Smooth | Hold-to-aim | Wall-check | Distance cap | Passive-ignore | Velocity prediction | Min HP stop | stutter-fixed)
+  | Insta Reload (animation speed tweak, safe, tunable)
+  | World Visuals (Fullbright | FOV Lock)
+  | HUD (Watermark + FPS/Ping) + Crosshair overlay
+  | Friends / Ignore lists
+  | Performance Modes (ESP update throttling)
+
+  Notes:
+    - Watermark forced
+    - Off-screen arrows removed
+    - No themes
+]]
+
 if getgenv().KittenWareLoaded or getgenv().KittenWareLoading then return end
 getgenv().KittenWareLoading = true
 
@@ -31,7 +49,7 @@ local Combat   = MainUI:Tab("Combat")
 local ESPTab   = MainUI:Tab("Visual")
 local World    = MainUI:Tab("World")
 local HUDTab   = MainUI:Tab("HUD")
-local Config   = MainUI:Tab("WhiteList")
+local Config   = MainUI:Tab("Config")
 local About    = MainUI:Tab("Settings")
 
 ----------------------------------------------------------------
@@ -62,7 +80,7 @@ Combat:Section({Name="No Recoil", Side="Left"})
 :Toggle({Name="Enabled",Flag="KW_NR",Default=false,Callback=function(v) if v then enableNR() else disableNR() end end})
 
 ----------------------------------------------------------------
--- ESP++ (Drawing API)
+-- ESP++ (Players + Drones) — Drawing API
 ----------------------------------------------------------------
 local hasDrawing = (typeof(Drawing)=="table" and typeof(Drawing.new)=="function")
 if not hasDrawing then notify("KittenWare","Drawing API not found | ESP & HUD disabled.",5) end
@@ -74,6 +92,7 @@ local esp = {
   updateEvery      = 1,
   counter          = 0,
 
+  -- Players
   showSkeleton     = true,
   showBox          = true,
   showCornerBox    = true,
@@ -109,9 +128,20 @@ local esp = {
   itemSize         = 13,
   itemOffsetY      = 14,
   itemWhenNoTool   = false,
+
+  -- Drones
+  droneEnabled     = true,
+  droneColor       = Color3.fromRGB(255, 180, 60),
+  droneName        = "DRONE",
+  droneMaxDist     = 3000,
+  droneTracers     = true,
+  droneFilled      = true,
+  droneFillAlpha   = 0.12,
 }
 
 local whitelist, ignorelist = {}, {}
+
+-- team check for players
 local function sameTeam(plr)
   if not esp.teamCheck then return false end
   if LP.Team and plr.Team then return LP.Team==plr.Team end
@@ -119,6 +149,7 @@ local function sameTeam(plr)
   return false
 end
 
+-- passive check (ForceField material or ForceField instance / attributes)
 local function isPassive(char)
   if not char then return false end
   if char:FindFirstChildOfClass("ForceField") then return true end
@@ -153,10 +184,13 @@ end
 
 local function vp(v3) local v,o=Camera:WorldToViewportPoint(v3); return Vector2.new(v.X,v.Y), o end
 
-local buckets, signalMap = {}, {}
+-- Drawing constructors
 local function mkLine() local l=Drawing.new("Line") l.Visible=false l.Color=Color3.new(1,1,1) l.Thickness=esp.thicknessBase l.Transparency=esp.alphaBase return l end
 local function mkText() local t=Drawing.new("Text") t.Visible=false t.Center=true t.Size=14 t.Outline=true t.Transparency=1 t.Color=Theme.Secondary return t end
 local function mkSquare() local s=Drawing.new("Square") s.Visible=false s.Thickness=esp.thicknessBase s.Filled=false s.Color=Theme.Secondary s.Transparency=esp.alphaBase return s end
+
+-- Player ESP buckets
+local buckets, signalMap = {}, {}
 local function getBucket(plr)
   if buckets[plr] then return buckets[plr] end
   local b = {
@@ -183,6 +217,21 @@ local function cleanPlayer(plr)
   local sigs=signalMap[plr]; if sigs then for _,c in ipairs(sigs) do if c then c:Disconnect() end end end signalMap[plr]=nil
 end
 
+-- Drone ESP buckets
+local droneMap = {}  -- [Model] = bucket
+local function mkDroneBucket()
+  return {
+    boxT=mkLine(), boxB=mkLine(), boxL=mkLine(), boxR=mkLine(),
+    fill=mkSquare(),
+    tracer=mkLine(),
+    label=mkText(),
+    dist=mkText(),
+  }
+end
+local function hideDroneBucket(b) if not b then return end for _,o in pairs(b) do o.Visible=false end end
+local function cleanDrone(m) local b=droneMap[m]; if b then for _,o in pairs(b) do o:Remove() end end droneMap[m]=nil end
+
+-- Utilities
 local function dynThickness(dist)
   if not esp.fadeByDistance then return esp.thicknessBase, esp.alphaBase end
   local t = clamp(dist/esp.maxDistance, 0, 1)
@@ -246,7 +295,8 @@ local function equippedName(ch)
   return nil
 end
 
-local function updateOne(plr)
+-- Players update
+local function updatePlayer(plr)
   if plr==LP or ignorelist[plr.Name] then local b=buckets[plr]; if b then hideBucket(b) end return end
   if sameTeam(plr) then local b=buckets[plr]; if b then hideBucket(b) end return end
 
@@ -260,9 +310,9 @@ local function updateOne(plr)
   local vis = LOS(hrp, ch) or (p.torso and LOS(p.torso, ch))
   if esp.onlyVisible and not vis then local b=buckets[plr]; if b then hideBucket(b) end return end
 
-  local pass = esp.passiveESP and isPassive(ch) or false
   local base = vis and esp.visColor or esp.occColor
   if esp.useTeamColors and plr.TeamColor then base = plr.TeamColor.Color end
+  if esp.passiveESP and isPassive(ch) then base = esp.passiveColor end
   local col=base
   local th,a = dynThickness(dist)
 
@@ -297,7 +347,8 @@ local function updateOne(plr)
   if esp.showBox and onScr then
     drawBoxLines(b, tl,tr,bl,br, col, th, a)
     if esp.showCornerBox then corners(b, tl,tr,bl,br, col, th+0.5, a, esp.cornerLen)
-    else b.cTL1.Visible=false b.cTL2.Visible=false b.cTR1.Visible=false b.cTR2.Visible=false b.cBL1.Visible=false b.cBL2.Visible=false b.cBR1.Visible=false b.cBR2.Visible=false end
+    else b.cTL1.Visible=false b.cTL2.Visible=false b.cTR1.Visible=false b.cTR2.Visible=false
+         b.cBL1.Visible=false b.cBL2.Visible=false b.cBR1.Visible=false b.cBR2.Visible=false end
     if esp.showFilledBox then
       b.boxFill.Filled=true; b.boxFill.Color=col; b.boxFill.Transparency=clamp(esp.fillAlpha,0.05,0.8)
       b.boxFill.Position=tl; b.boxFill.Size=Vector2.new(maxX-minX, maxY-minY); b.boxFill.Visible=true
@@ -332,7 +383,6 @@ local function updateOne(plr)
   else b.nameText.Visible=false end
 
   if esp.showDistance and onScr then
-    local dist=(hrp.Position - Camera.CFrame.Position).Magnitude
     b.distText.Text = string.format("%.0f", dist).."s"
     b.distText.Color=Theme.Secondary; b.distText.Position=Vector2.new((minX+maxX)/2, maxY+12); b.distText.Size=13; b.distText.Visible=true
   else b.distText.Visible=false end
@@ -356,25 +406,86 @@ local function updateOne(plr)
   else b.tracer.Visible=false end
 end
 
-local function updateESP()
-  esp.counter += 1
-  local stepEvery = esp.updateEvery
-  if esp.perfMode == "Auto" then
-    -- dynamic frameskip (cheap): rely on counter % 2 under heavy load handled by engine
-    stepEvery = 1
-  elseif esp.perfMode == "Fast" then
-    stepEvery = 2
-  else
-    stepEvery = 1
-  end
-  if esp.counter % stepEvery ~= 0 then return end
-  for _,plr in ipairs(Players:GetPlayers()) do updateOne(plr) end
+-- Drones update
+local function updateDrone(model)
+  local b = droneMap[model] or mkDroneBucket(); droneMap[model]=b
+  if not esp.droneEnabled then hideDroneBucket(b) return end
+
+  -- distance check using model PrimaryPart or bbox center
+  local cf,size = model:GetBoundingBox()
+  local center = cf.Position
+  local dist = (center - Camera.CFrame.Position).Magnitude
+  if dist > esp.droneMaxDist then hideDroneBucket(b) return end
+
+  local minX,minY,maxX,maxY,onScr = computeBBox(model)
+  if not onScr then hideDroneBucket(b) return end
+
+  local tl,tr,bl,br = Vector2.new(minX,minY), Vector2.new(maxX,minY), Vector2.new(minX,maxY), Vector2.new(maxX,maxY)
+  local th, al = 2, 0.9
+  drawBoxLines(b, tl,tr,bl,br, esp.droneColor, th, al)
+
+  if esp.droneFilled then
+    b.fill.Filled=true; b.fill.Color=esp.droneColor; b.fill.Transparency=clamp(esp.droneFillAlpha,0.05,0.8)
+    b.fill.Position=tl; b.fill.Size=Vector2.new(maxX-minX, maxY-minY); b.fill.Visible=true
+  else b.fill.Visible=false end
+
+  b.label.Text = (model.Name and model.Name ~= "" and model.Name) or esp.droneName
+  b.label.Color = esp.droneColor
+  b.label.Size = 14
+  b.label.Position = Vector2.new((minX+maxX)/2, math.max(0, minY - 14))
+  b.label.Visible = true
+
+  b.dist.Text = string.format("%.0f", dist).."s"
+  b.dist.Color = Theme.Secondary
+  b.dist.Size = 13
+  b.dist.Position = Vector2.new((minX+maxX)/2, maxY + 12)
+  b.dist.Visible = true
+
+  if esp.droneTracers then
+    local v,_ = Camera:WorldToViewportPoint(center)
+    b.tracer.From = tracerAnchor()
+    b.tracer.To = Vector2.new(v.X, v.Y)
+    b.tracer.Color = esp.droneColor
+    b.tracer.Thickness = 2
+    b.tracer.Transparency = 0.9
+    b.tracer.Visible = true
+  else b.tracer.Visible=false end
 end
 
+-- Track drone models by name anywhere in the game
+local DroneFolderSet = {} -- [Model] = true
+
+local function considerInstance(inst)
+  if inst:IsA("Model") and inst.Name == "DroneModel" then
+    DroneFolderSet[inst] = true
+  end
+end
+for _,d in ipairs(Workspace:GetDescendants()) do considerInstance(d) end
+local descAddConn = Workspace.DescendantAdded:Connect(considerInstance)
+local descRemConn = Workspace.DescendantRemoving:Connect(function(inst)
+  if DroneFolderSet[inst] then DroneFolderSet[inst]=nil cleanDrone(inst) end
+end)
+
+-- Master ESP update
 local signalMapGlobal = {}
 local function hookSignals(plr)
   signalMap[plr] = signalMap[plr] or {}
   table.insert(signalMap[plr], plr.CharacterRemoving:Connect(function() local b=buckets[plr]; if b then hideBucket(b) end end))
+end
+
+local function updateESP()
+  esp.counter += 1
+  local stepEvery = (esp.perfMode=="Fast") and 2 or 1
+  if esp.perfMode=="Max" then stepEvery=1 end
+  if esp.counter % stepEvery ~= 0 then return end
+
+  -- players
+  for _,plr in ipairs(Players:GetPlayers()) do updatePlayer(plr) end
+
+  -- drones
+  for model,_ in pairs(DroneFolderSet) do
+    if model and model.Parent then updateDrone(model) else DroneFolderSet[model]=nil cleanDrone(model) end
+  end
 end
 
 local function enableESP()
@@ -392,11 +503,12 @@ local function disableESP()
   esp.enabled=false
   if esp.conn then esp.conn:Disconnect() esp.conn=nil end
   for plr in pairs(buckets) do cleanPlayer(plr) end
+  for m in pairs(droneMap) do cleanDrone(m) end
 end
 
--- ESP UI
+-- ESP UI (players)
 do
-  local L = ESPTab:Section({Name="Core", Side="Left"})
+  local L = ESPTab:Section({Name="Players | Core", Side="Left"})
   L:Toggle({Name="Enable ESP", Flag="KW_ESP_EN", Default=false, Callback=function(v) if v then enableESP() else disableESP() end end})
   L:Dropdown({Name="Performance", Flag="KW_ESP_PERF", Content={"Auto","Fast","Max"}, Default="Auto", Callback=function(v) esp.perfMode=v end})
   L:Slider({Name="Max Distance", Flag="KW_ESP_MD", Default=esp.maxDistance, Min=200, Max=6000, Callback=function(v) esp.maxDistance=v end})
@@ -405,7 +517,7 @@ do
   L:Toggle({Name="Team Check", Flag="KW_ESP_TC", Default=esp.teamCheck, Callback=function(v) esp.teamCheck=v end})
   L:Toggle({Name="Use Team Colors", Flag="KW_ESP_UCT", Default=esp.useTeamColors, Callback=function(v) esp.useTeamColors=v end})
 
-  local R = ESPTab:Section({Name="Elements", Side="Right"})
+  local R = ESPTab:Section({Name="Players | Elements", Side="Right"})
   R:Toggle({Name="Skeleton", Flag="KW_ESP_SKEL", Default=esp.showSkeleton, Callback=function(v) esp.showSkeleton=v end})
   R:Toggle({Name="Box", Flag="KW_ESP_BOX", Default=esp.showBox, Callback=function(v) esp.showBox=v end})
   R:Toggle({Name="Corner Box", Flag="KW_ESP_CBOX", Default=esp.showCornerBox, Callback=function(v) esp.showCornerBox=v end})
@@ -419,30 +531,35 @@ do
   R:Toggle({Name="Distance", Flag="KW_ESP_DIST", Default=esp.showDistance, Callback=function(v) esp.showDistance=v end})
 end
 
--- Item ESP & Style
+-- Item ESP & Style (players)
 do
-  local I = ESPTab:Section({Name="Item ESP | Style", Side="Left"})
+  local I = ESPTab:Section({Name="Players | Item ESP | Style", Side="Left"})
   I:Toggle({Name="Item ESP", Flag="KW_ITEM_EN", Default=esp.itemESP, Callback=function(v) esp.itemESP=v end})
   I:Colorpicker({Name="Item Text Color", Flag="KW_ITEM_COL", Default=esp.itemESPColor, Callback=function(c) esp.itemESPColor=c end})
   I:Slider({Name="Item Size", Flag="KW_ITEM_SZ", Default=esp.itemSize, Min=10, Max=22, Callback=function(v) esp.itemSize=math.floor(v) end})
   I:Slider({Name="Item Offset Y", Flag="KW_ITEM_OY", Default=esp.itemOffsetY, Min=8, Max=28, Callback=function(v) esp.itemOffsetY=math.floor(v) end})
   I:Toggle({Name="Show When No Tool", Flag="KW_ITEM_SNT", Default=esp.itemWhenNoTool, Callback=function(v) esp.itemWhenNoTool=v end})
 
-  local S = ESPTab:Section({Name="Thickness | Colors | Passive", Side="Right"})
-  S:Slider({Name="Base Thickness", Flag="KW_T_B", Default=math.floor(esp.thicknessBase), Min=1, Max=6, Callback=function(v) esp.thicknessBase=v end})
-  S:Slider({Name="Near Thickness", Flag="KW_T_N", Default=math.floor(esp.nearThick), Min=1, Max=8, Callback=function(v) esp.nearThick=v end})
-  S:Slider({Name="Far Thickness", Flag="KW_T_F", Default=math.floor(esp.farThick), Min=1, Max=6, Callback=function(v) esp.farThick=v end})
-  S:Slider({Name="Alpha x10", Flag="KW_A_X10", Default=math.floor(esp.alphaBase*10), Min=3, Max=10, Callback=function(v) esp.alphaBase=v/10 end})
-  S:Colorpicker({Name="Visible Color", Flag="KW_C_V", Default=esp.visColor, Callback=function(c) esp.visColor=c end})
-  S:Colorpicker({Name="Occluded Color", Flag="KW_C_O", Default=esp.occColor, Callback=function(c) esp.occColor=c end})
-
-  local P = ESPTab:Section({Name="Passive Check", Side="Left"})
+  local P = ESPTab:Section({Name="Colors | Passive Check", Side="Right"})
   P:Toggle({Name="Show (P) tag", Flag="KW_PAS_TAG", Default=esp.passiveESP, Callback=function(v) esp.passiveESP=v end})
   P:Colorpicker({Name="Passive Color", Flag="KW_PAS_COL", Default=esp.passiveColor, Callback=function(c) esp.passiveColor=c end})
+  P:Colorpicker({Name="Visible Color", Flag="KW_C_V", Default=esp.visColor, Callback=function(c) esp.visColor=c end})
+  P:Colorpicker({Name="Occluded Color", Flag="KW_C_O", Default=esp.occColor, Callback=function(c) esp.occColor=c end})
+end
+
+-- Drone ESP UI
+do
+  local D = ESPTab:Section({Name="Drones | DroneModel ESP", Side="Left"})
+  D:Toggle({Name="Enable Drone ESP", Flag="KW_DR_EN", Default=esp.droneEnabled, Callback=function(v) esp.droneEnabled=v end})
+  D:Slider({Name="Max Distance", Flag="KW_DR_MD", Default=esp.droneMaxDist, Min=300, Max=8000, Callback=function(v) esp.droneMaxDist=v end})
+  D:Toggle({Name="Tracer", Flag="KW_DR_TR", Default=esp.droneTracers, Callback=function(v) esp.droneTracers=v end})
+  D:Toggle({Name="Filled Box", Flag="KW_DR_FILL", Default=esp.droneFilled, Callback=function(v) esp.droneFilled=v end})
+  D:Slider({Name="Fill Alpha %", Flag="KW_DR_FA", Default=math.floor(esp.droneFillAlpha*100), Min=5, Max=80, Callback=function(v) esp.droneFillAlpha=clamp(v/100,0.05,0.8) end})
+  D:Colorpicker({Name="Drone Color", Flag="KW_DR_COL", Default=esp.droneColor, Callback=function(c) esp.droneColor=c end})
 end
 
 ----------------------------------------------------------------
--- Aimbot (stutter-fixed | HP gate)
+-- Aimbot (stutter-fixed | min HP stop)
 ----------------------------------------------------------------
 local aim = {
   enabled       = false,
@@ -455,18 +572,18 @@ local aim = {
   passiveIgnore = true,
   targetPart    = "Head",
   fov           = 150,
-  smooth        = 0.18,     -- base smoothing
+  smooth        = 0.18,
   maxDistance   = 1200,
   showHUD       = true,
 
-  minHPToLock   = 1,        -- NEW: don't lock if Health <= this
+  minHPToLock   = 1,       -- don't lock if Health <= this
 
   prediction    = false,
   bulletSpeed   = 300,
   leadStrength  = 1.0,
 
-  selectInterval= 0.08,     -- NEW: target selection cadence (sec) to prevent stutter
-  losRefresh    = 0.20,     -- NEW: revalidate LOS this often for current target
+  selectInterval= 0.08,
+  losRefresh    = 0.20,
   lastSelect    = 0,
   lastLOSCheck  = 0,
   currentPart   = nil,
@@ -580,7 +697,6 @@ local function predictedPosition(part)
 end
 
 local function framerateSmooth(dt, s)
-  -- convert "smooth" (0..1) to frame-rate independent blend
   local perFrame = clamp(s, 0.01, 1)
   local factor = 1 - math.pow(1 - perFrame, dt * 60)
   return clamp(factor, 0.01, 1)
@@ -602,13 +718,11 @@ local function stepAim()
   updFOV()
   if not aim.enabled or (aim.holdToUse and not holding) then setHUD(nil) aim.currentPart=nil return end
 
-  -- Re-select target at controlled cadence to prevent stutter spikes
   if (now - aim.lastSelect) >= aim.selectInterval or not aim.currentPart then
     aim.currentPart = findCandidate()
     aim.lastSelect = now
     aim.lastLOSCheck = now
   else
-    -- Validate current target cheaply (health+distance+FOV), LOS less often
     local part = aim.currentPart
     local ch = part and part.Parent
     local hum = ch and ch:FindFirstChildOfClass("Humanoid")
@@ -776,7 +890,7 @@ local fpsCounter,lastFPS,fpsAccum = 0,60,0
 RunService.RenderStepped:Connect(function(dt)
   if not hasDrawing then return end
   watermark.Visible=true
-  watermark.Text=("KittenWare - Made by list  |  %s"):format(os.date("%H:%M:%S"))
+  watermark.Text=("KittenWare - Made by List |  %s"):format(os.date("%H:%M:%S"))
   watermark.Position=Vector2.new(10,8)
 
   if hud.showStats then
@@ -822,7 +936,8 @@ end
 local S = About:Section({Name="KittenWare", Side="Left"})
 S:Keybind({Name="Toggle UI", Flag="KW_UI_TOG", Default=Enum.KeyCode.RightShift, Callback=function(_, newKey) if not newKey then GUI:Close() end end})
 S:Button({Name="Unload", Callback=function()
-  disableESP(); disableAim(); disableIR(); disableFB(); disableFOV()
+  disableESP(); if descAddConn then descAddConn:Disconnect() end; if descRemConn then descRemConn:Disconnect() end
+  disableAim(); disableIR(); disableFB(); disableFOV()
   GUI:Unload(); getgenv().KittenWareLoaded=nil
 end})
 
