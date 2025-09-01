@@ -1,7 +1,7 @@
 print([[
-KittenWare On Top
+KuromiWare On Top
 ==========================================================
-|                        KITTENWARE                      |
+|                        KuromiWare                      |
 |--------------------------------------------------------|
 | Version: v1                                            |
 |                                                        |
@@ -24,6 +24,7 @@ local StarterGui  = game:GetService("StarterGui")
 local Lighting    = game:GetService("Lighting")
 local Workspace   = game:GetService("Workspace")
 local Stats       = game:GetService("Stats")
+local MPS         = game:GetService("MarketplaceService")
 
 local LP          = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
@@ -36,7 +37,7 @@ local function lerp(a,b,t) return a + (b-a)*t end
 -- UI (Exunys)
 ----------------------------------------------------------------
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Roblox-Functions-Library/main/Library.lua"))()
-local GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/kitty92pm/AirHub-V2/refs/heads/main/src/UI%20Library.lua"))()
+local GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/AirHub-V2/main/src/UI%20Library.lua"))()
 
 -- Tabs
 local MainUI   = GUI:Load()
@@ -44,8 +45,8 @@ local Combat   = MainUI:Tab("Combat")
 local ESPTab   = MainUI:Tab("Visual")
 local World    = MainUI:Tab("World")
 local HUDTab   = MainUI:Tab("HUD")
-local Config   = MainUI:Tab("Config")
-local About    = MainUI:Tab("Settings")
+local Config   = MainUI:Tab("Whitelist")
+local About    = MainUI:Tab("Settins")
 
 ----------------------------------------------------------------
 -- GLOBAL COLORS
@@ -54,7 +55,9 @@ local Theme = {
   Accent       = Color3.fromRGB(170, 120, 255),
   Good         = Color3.fromRGB(50, 220, 140),
   Danger       = Color3.fromRGB(255, 120, 120),
-  Secondary    = Color3.fromRGB(220, 220, 220),
+  Secondary    = Color3.fromRGB(230, 230, 235),
+  PanelDark    = Color3.fromRGB(20, 20, 26),
+  PanelMid     = Color3.fromRGB(40, 40, 55),
 }
 
 ----------------------------------------------------------------
@@ -78,7 +81,7 @@ Combat:Section({Name="No Recoil", Side="Left"})
 -- ESP++ (Players + Drones) — Drawing API
 ----------------------------------------------------------------
 local hasDrawing = (typeof(Drawing)=="table" and typeof(Drawing.new)=="function")
-if not hasDrawing then notify("KittenWare","Drawing API not found | ESP & HUD disabled.",5) end
+if not hasDrawing then notify("KuromiWare","Drawing API not found | ESP & HUD disabled.",5) end
 
 local esp = {
   enabled          = false,
@@ -136,7 +139,6 @@ local esp = {
 
 local whitelist, ignorelist = {}, {}
 
--- team check for players
 local function sameTeam(plr)
   if not esp.teamCheck then return false end
   if LP.Team and plr.Team then return LP.Team==plr.Team end
@@ -144,7 +146,6 @@ local function sameTeam(plr)
   return false
 end
 
--- passive check (ForceField material or ForceField instance / attributes)
 local function isPassive(char)
   if not char then return false end
   if char:FindFirstChildOfClass("ForceField") then return true end
@@ -226,7 +227,6 @@ end
 local function hideDroneBucket(b) if not b then return end for _,o in pairs(b) do o.Visible=false end end
 local function cleanDrone(m) local b=droneMap[m]; if b then for _,o in pairs(b) do o:Remove() end end droneMap[m]=nil end
 
--- Utilities
 local function dynThickness(dist)
   if not esp.fadeByDistance then return esp.thicknessBase, esp.alphaBase end
   local t = clamp(dist/esp.maxDistance, 0, 1)
@@ -406,8 +406,7 @@ local function updateDrone(model)
   local b = droneMap[model] or mkDroneBucket(); droneMap[model]=b
   if not esp.droneEnabled then hideDroneBucket(b) return end
 
-  -- distance check using model PrimaryPart or bbox center
-  local cf,size = model:GetBoundingBox()
+  local cf,_ = model:GetBoundingBox()
   local center = cf.Position
   local dist = (center - Camera.CFrame.Position).Magnitude
   if dist > esp.droneMaxDist then hideDroneBucket(b) return end
@@ -424,7 +423,7 @@ local function updateDrone(model)
     b.fill.Position=tl; b.fill.Size=Vector2.new(maxX-minX, maxY-minY); b.fill.Visible=true
   else b.fill.Visible=false end
 
-  b.label.Text = (model.Name and model.Name ~= "" and model.Name) or esp.droneName
+  b.label.Text = (model.Name and model.Name ~= "" and model.Name) or "DRONE"
   b.label.Color = esp.droneColor
   b.label.Size = 14
   b.label.Position = Vector2.new((minX+maxX)/2, math.max(0, minY - 14))
@@ -449,7 +448,6 @@ end
 
 -- Track drone models by name anywhere in the game
 local DroneFolderSet = {} -- [Model] = true
-
 local function considerInstance(inst)
   if inst:IsA("Model") and inst.Name == "DroneModel" then
     DroneFolderSet[inst] = true
@@ -474,17 +472,14 @@ local function updateESP()
   if esp.perfMode=="Max" then stepEvery=1 end
   if esp.counter % stepEvery ~= 0 then return end
 
-  -- players
   for _,plr in ipairs(Players:GetPlayers()) do updatePlayer(plr) end
-
-  -- drones
   for model,_ in pairs(DroneFolderSet) do
     if model and model.Parent then updateDrone(model) else DroneFolderSet[model]=nil cleanDrone(model) end
   end
 end
 
 local function enableESP()
-  if not hasDrawing then notify("KittenWare","ESP requires Drawing API",4) return end
+  if not hasDrawing then notify("KuromiWare","ESP requires Drawing API",4) return end
   if esp.conn then esp.conn:Disconnect() end
   esp.enabled=true
   esp.conn = RunService.RenderStepped:Connect(updateESP)
@@ -501,7 +496,7 @@ local function disableESP()
   for m in pairs(droneMap) do cleanDrone(m) end
 end
 
--- ESP UI (players)
+-- ESP UI
 do
   local L = ESPTab:Section({Name="Players | Core", Side="Left"})
   L:Toggle({Name="Enable ESP", Flag="KW_ESP_EN", Default=false, Callback=function(v) if v then enableESP() else disableESP() end end})
@@ -524,10 +519,7 @@ do
   R:Toggle({Name="Name", Flag="KW_ESP_NAME", Default=esp.showNames, Callback=function(v) esp.showNames=v end})
   R:Toggle({Name="Health Bar", Flag="KW_ESP_HP", Default=esp.showHealth, Callback=function(v) esp.showHealth=v end})
   R:Toggle({Name="Distance", Flag="KW_ESP_DIST", Default=esp.showDistance, Callback=function(v) esp.showDistance=v end})
-end
 
--- Item ESP & Style (players)
-do
   local I = ESPTab:Section({Name="Players | Item ESP | Style", Side="Left"})
   I:Toggle({Name="Item ESP", Flag="KW_ITEM_EN", Default=esp.itemESP, Callback=function(v) esp.itemESP=v end})
   I:Colorpicker({Name="Item Text Color", Flag="KW_ITEM_COL", Default=esp.itemESPColor, Callback=function(c) esp.itemESPColor=c end})
@@ -535,15 +527,12 @@ do
   I:Slider({Name="Item Offset Y", Flag="KW_ITEM_OY", Default=esp.itemOffsetY, Min=8, Max=28, Callback=function(v) esp.itemOffsetY=math.floor(v) end})
   I:Toggle({Name="Show When No Tool", Flag="KW_ITEM_SNT", Default=esp.itemWhenNoTool, Callback=function(v) esp.itemWhenNoTool=v end})
 
-  local P = ESPTab:Section({Name="Colors | Passive Check", Side="Right"})
+  local P = ESPTab:Section({Name="Players | Passive | Colors", Side="Right"})
   P:Toggle({Name="Show (P) tag", Flag="KW_PAS_TAG", Default=esp.passiveESP, Callback=function(v) esp.passiveESP=v end})
   P:Colorpicker({Name="Passive Color", Flag="KW_PAS_COL", Default=esp.passiveColor, Callback=function(c) esp.passiveColor=c end})
   P:Colorpicker({Name="Visible Color", Flag="KW_C_V", Default=esp.visColor, Callback=function(c) esp.visColor=c end})
   P:Colorpicker({Name="Occluded Color", Flag="KW_C_O", Default=esp.occColor, Callback=function(c) esp.occColor=c end})
-end
 
--- Drone ESP UI
-do
   local D = ESPTab:Section({Name="Drones | DroneModel ESP", Side="Left"})
   D:Toggle({Name="Enable Drone ESP", Flag="KW_DR_EN", Default=esp.droneEnabled, Callback=function(v) esp.droneEnabled=v end})
   D:Slider({Name="Max Distance", Flag="KW_DR_MD", Default=esp.droneMaxDist, Min=300, Max=8000, Callback=function(v) esp.droneMaxDist=v end})
@@ -571,7 +560,7 @@ local aim = {
   maxDistance   = 1200,
   showHUD       = true,
 
-  minHPToLock   = 1,       -- don't lock if Health <= this
+  minHPToLock   = 1,
 
   prediction    = false,
   bulletSpeed   = 300,
@@ -616,11 +605,11 @@ UIS.InputBegan:Connect(function(i,gpe)
 end)
 UIS.InputEnded:Connect(function(i) if i.UserInputType==aim.holdButton then holding=false end end)
 
-local function setHUD(txt)
+local function setAimHUD(txt)
   if aim.hudText then
     if aim.showHUD and txt then
       aim.hudText.Text = txt
-      aim.hudText.Position = Vector2.new(Camera.ViewportSize.X/2, 40)
+      aim.hudText.Position = Vector2.new(Camera.ViewportSize.X/2, 72) -- under the header
       aim.hudText.Visible = true
     else aim.hudText.Visible=false end
   end
@@ -711,7 +700,7 @@ local function stepAim()
   lastStep = now
 
   updFOV()
-  if not aim.enabled or (aim.holdToUse and not holding) then setHUD(nil) aim.currentPart=nil return end
+  if not aim.enabled or (aim.holdToUse and not holding) then setAimHUD(nil) aim.currentPart=nil return end
 
   if (now - aim.lastSelect) >= aim.selectInterval or not aim.currentPart then
     aim.currentPart = findCandidate()
@@ -748,14 +737,14 @@ local function stepAim()
     local who = pl and pl.Name or "Target"
     if ch and isPassive(ch) then who = who.." (P)" end
     local dist = (t.Position - Camera.CFrame.Position).Magnitude
-    setHUD(string.format("%s  |  %.0fs", who, dist))
+    setAimHUD(string.format("%s  |  %.0fs", who, dist))
   else
-    setHUD(nil)
+    setAimHUD(nil)
   end
 end
 
 local function enableAim() if aim.conn then aim.conn:Disconnect() end aim.conn = RunService.RenderStepped:Connect(stepAim); if aim.fovCircle then aim.fovCircle.Visible=true end end
-local function disableAim() if aim.conn then aim.conn:Disconnect() aim.conn=nil end if aim.fovCircle then aim.fovCircle.Visible=false end setHUD(nil) aim.currentPart=nil end
+local function disableAim() if aim.conn then aim.conn:Disconnect() aim.conn=nil end if aim.fovCircle then aim.fovCircle.Visible=false end setAimHUD(nil) aim.currentPart=nil end
 
 -- Aimbot UI
 do
@@ -869,48 +858,197 @@ do
 end
 
 ----------------------------------------------------------------
--- HUD / Crosshair (watermark forced)
+-- HUD | Modern Centered Header + Crosshair
 ----------------------------------------------------------------
-local watermark, fpsText, crossLines = nil, nil, {}
+local placeName = "Place"
+pcall(function()
+  local info = MPS:GetProductInfo(game.PlaceId)
+  if info and info.Name and #info.Name > 0 then placeName = info.Name end
+end)
+
+local hud = {
+  -- Header
+  showHeaderBar   = true,     -- bar background
+  showAccentLine  = true,     -- animated accent strip
+  accentPulse     = true,
+  accentSpeed     = 0.12,     -- hue speed
+  headerAlpha     = 0.18,
+  shadowAlpha     = 0.35,
+  headerHeight    = 34,
+  headerAutoWidth = true,
+  headerWidth     = 480,
+  headerFontSize  = 15,
+
+  showFPS         = true,
+  showPing        = true,
+  showPlayers     = true,
+  showTime        = true,
+  showPlace       = true,
+  showUsername    = false,
+
+  -- Crosshair
+  showCrosshair   = true,
+  crossGap        = 7,
+  crossLen        = 9,
+  crossThick      = 1.5,
+}
+
+-- Drawing objects for header
+local headerBar, headerShadow, headerText, accentLine
+local statText = nil
 if hasDrawing then
-  watermark = Drawing.new("Text"); watermark.Center=false; watermark.Size=14; watermark.Outline=true; watermark.Color=Theme.Accent; watermark.Visible=true
-  fpsText   = Drawing.new("Text"); fpsText.Center=false; fpsText.Size=13; fpsText.Outline=true; fpsText.Color=Theme.Secondary; fpsText.Visible=true
-  for i=1,4 do local l=Drawing.new("Line"); l.Color=Theme.Secondary; l.Thickness=1.5; l.Visible=false; crossLines[i]=l end
+  headerBar    = Drawing.new("Square")
+  headerShadow = Drawing.new("Square")
+  headerText   = Drawing.new("Text")
+  accentLine   = Drawing.new("Line")
+  statText     = Drawing.new("Text")
+
+  for _,sq in ipairs({headerBar, headerShadow}) do
+    sq.Visible=false; sq.Filled=true; sq.Color=Theme.PanelMid; sq.Thickness=1
+  end
+  headerShadow.Color = Theme.PanelDark
+
+  headerText.Visible=true; headerText.Center=true; headerText.Size=hud.headerFontSize; headerText.Outline=true; headerText.Color=Theme.Secondary
+  statText.Visible=true; statText.Center=true; statText.Size=hud.headerFontSize-1; statText.Outline=true; statText.Color=Color3.fromRGB(200,200,210)
+
+  accentLine.Visible=true; accentLine.Thickness=2
 end
 
-local hud = { showWatermark=true, showStats=true, showCrosshair=true, crossGap=7, crossLen=9 }
+-- Crosshair
+local crossLines = {}
+if hasDrawing then
+  for i=1,4 do local l=Drawing.new("Line"); l.Color=Theme.Secondary; l.Thickness=hud.crossThick; l.Visible=false; crossLines[i]=l end
+end
+
+-- Stats helpers
 local pingItem = Stats and Stats.Network and Stats.Network.ServerStatsItem and Stats.Network.ServerStatsItem["Data Ping"] or nil
 local fpsCounter,lastFPS,fpsAccum = 0,60,0
 
+local function buildHeaderStrings()
+  local left = "KuromiWare - By list"
+  local rightParts = {}
+
+  if hud.showFPS then table.insert(rightParts, ("FPS %d"):format(lastFPS)) end
+  if hud.showPing and pingItem then table.insert(rightParts, ("Ping %dms"):format(math.max(0, math.floor(pingItem:GetValue() or 0)))) end
+  if hud.showPlayers then table.insert(rightParts, ("Players %d"):format(#Players:GetPlayers())) end
+  if hud.showTime then table.insert(rightParts, os.date("%H:%M:%S")) end
+  if hud.showPlace then table.insert(rightParts, placeName) end
+  if hud.showUsername then table.insert(rightParts, ("@%s"):format(LP.Name)) end
+
+  local right = table.concat(rightParts, " | ")
+  return left, right
+end
+
 RunService.RenderStepped:Connect(function(dt)
   if not hasDrawing then return end
-  watermark.Visible=true
-  watermark.Text=("KittenWare - Made by List |  %s"):format(os.date("%H:%M:%S"))
-  watermark.Position=Vector2.new(10,8)
 
-  if hud.showStats then
-    fpsAccum+=dt; fpsCounter+=1
-    if fpsAccum>=0.25 then lastFPS=math.floor(fpsCounter/fpsAccum+0.5); fpsAccum=0; fpsCounter=0 end
-    local ping=pingItem and math.floor(pingItem:GetValue()) or 0
-    fpsText.Visible=true; fpsText.Text=("FPS %d  |  Ping %dms"):format(lastFPS,ping); fpsText.Position=Vector2.new(10,26)
-  else fpsText.Visible=false end
+  -- FPS calc
+  fpsAccum += dt; fpsCounter += 1
+  if fpsAccum >= 0.25 then lastFPS = math.floor(fpsCounter / fpsAccum + 0.5); fpsAccum, fpsCounter = 0, 0 end
 
+  -- Header content
+  local left, right = buildHeaderStrings()
+  local combined = (right ~= "" and (left.." | "..right)) or left
+
+  -- Measure width (approx)
+  local vw = Camera.ViewportSize.X
+  local vh = Camera.ViewportSize.Y
+  local textSize = hud.headerFontSize
+  headerText.Size = textSize
+  statText.Size   = textSize - 1
+
+  local approxWidth = math.clamp(#combined * textSize * 0.56 + 40, 260, math.min(vw - 24, 720))
+  local w = hud.headerAutoWidth and approxWidth or hud.headerWidth
+  local h = hud.headerHeight
+  local x = math.floor((vw - w) / 2)
+  local y = 8
+
+  -- Background bar + shadow
+  if hud.showHeaderBar then
+    headerShadow.Position     = Vector2.new(x, y+2)
+    headerShadow.Size         = Vector2.new(w, h)
+    headerShadow.Transparency = hud.shadowAlpha
+    headerShadow.Visible      = true
+
+    headerBar.Position        = Vector2.new(x, y)
+    headerBar.Size            = Vector2.new(w, h)
+    headerBar.Transparency    = hud.headerAlpha
+    headerBar.Visible         = true
+  else
+    headerShadow.Visible = false
+    headerBar.Visible    = false
+  end
+
+  -- Accent pulse color
+  local accent = Theme.Accent
+  if hud.accentPulse then
+    local hue = (os.clock() * hud.accentSpeed) % 1
+    accent = Color3.fromHSV(hue, 0.5, 1)
+  end
+  if hud.showAccentLine then
+    accentLine.From         = Vector2.new(x+8, y+h-2)
+    accentLine.To           = Vector2.new(x+w-8, y+h-2)
+    accentLine.Color        = accent
+    accentLine.Transparency = 0.9
+    accentLine.Visible      = true
+  else
+    accentLine.Visible = false
+  end
+
+  -- Centered text
+  headerText.Text      = combined
+  headerText.Color     = Theme.Secondary
+  headerText.Position  = Vector2.new(vw/2, y + h/2 + 1)
+  headerText.Visible   = true
+
+  -- Subtext (credits subtle accent)
+  statText.Text        = " "
+  statText.Color       = accent
+  statText.Position    = Vector2.new(vw/2, y + h + 14)
+  statText.Visible     = true
+
+  -- Crosshair
   local m=UIS:GetMouseLocation()
   local cgap,clen=hud.crossGap,hud.crossLen
   local pts={{Vector2.new(m.X - cgap - clen, m.Y), Vector2.new(m.X - cgap, m.Y)},
              {Vector2.new(m.X + cgap, m.Y),       Vector2.new(m.X + cgap + clen, m.Y)},
              {Vector2.new(m.X, m.Y - cgap - clen), Vector2.new(m.X, m.Y - cgap)},
              {Vector2.new(m.X, m.Y + cgap),        Vector2.new(m.X, m.Y + cgap + clen)}}
-  for i=1,4 do local L=crossLines[i]; if hud.showCrosshair then L.From=pts[i][1]; L.To=pts[i][2]; L.Visible=true else L.Visible=false end end
+  for i=1,4 do
+    local L=crossLines[i]
+    if hud.showCrosshair then
+      L.Thickness = hud.crossThick
+      L.From=pts[i][1]; L.To=pts[i][2]; L.Visible=true
+    else L.Visible=false end
+  end
 end)
 
+-- HUD UI
 do
-  local R = HUDTab:Section({Name="Crosshair", Side="Right"})
-  R:Toggle({Name="Enabled", Flag="KW_CH_EN", Default=true, Callback=function(v) hud.showCrosshair=v end})
-  R:Slider({Name="Gap (px)", Flag="KW_CH_GAP", Default=hud.crossGap, Min=3, Max=24, Callback=function(v) hud.crossGap=math.floor(v) end})
-  R:Slider({Name="Length (px)", Flag="KW_CH_LEN", Default=hud.crossLen, Min=4, Max=24, Callback=function(v) hud.crossLen=math.floor(v) end})
-  local L = HUDTab:Section({Name="HUD | Stats", Side="Left"})
-  L:Toggle({Name="FPS | Ping", Flag="KW_HUD_FP", Default=true, Callback=function(v) hud.showStats=v end})
+  local H = HUDTab:Section({Name="Header | Centered Banner", Side="Left"})
+  H:Toggle({Name="Show Header Bar", Flag="KW_HD_BAR", Default=hud.showHeaderBar, Callback=function(v) hud.showHeaderBar=v end})
+  H:Toggle({Name="Accent Pulse", Flag="KW_HD_AP", Default=hud.accentPulse, Callback=function(v) hud.accentPulse=v end})
+  H:Toggle({Name="Accent Line", Flag="KW_HD_AL", Default=hud.showAccentLine, Callback=function(v) hud.showAccentLine=v end})
+  H:Slider({Name="Header Height", Flag="KW_HD_H", Default=hud.headerHeight, Min=24, Max=50, Callback=function(v) hud.headerHeight=math.floor(v) end})
+  H:Slider({Name="Header Alpha %", Flag="KW_HD_A", Default=math.floor(hud.headerAlpha*100), Min=0, Max=80, Callback=function(v) hud.headerAlpha=clamp(v/100,0,0.8) end})
+  H:Slider({Name="Shadow Alpha %", Flag="KW_HD_SA", Default=math.floor(hud.shadowAlpha*100), Min=0, Max=80, Callback=function(v) hud.shadowAlpha=clamp(v/100,0,0.8) end})
+  H:Toggle({Name="Auto Width", Flag="KW_HD_AW", Default=hud.headerAutoWidth, Callback=function(v) hud.headerAutoWidth=v end})
+  H:Slider({Name="Manual Width", Flag="KW_HD_MW", Default=hud.headerWidth, Min=260, Max=720, Callback=function(v) hud.headerWidth=math.floor(v) end})
+  H:Slider({Name="Font Size", Flag="KW_HD_FS", Default=hud.headerFontSize, Min=12, Max=20, Callback=function(v) hud.headerFontSize=math.floor(v) end})
+
+  local D = HUDTab:Section({Name="Header | Data Chips", Side="Right"})
+  D:Toggle({Name="Show FPS", Flag="KW_HD_FPS", Default=hud.showFPS, Callback=function(v) hud.showFPS=v end})
+  D:Toggle({Name="Show Ping", Flag="KW_HD_PING", Default=hud.showPing, Callback=function(v) hud.showPing=v end})
+  D:Toggle({Name="Show Players", Flag="KW_HD_PLR", Default=hud.showPlayers, Callback=function(v) hud.showPlayers=v end})
+  D:Toggle({Name="Show Time", Flag="KW_HD_TIME", Default=hud.showTime, Callback=function(v) hud.showTime=v end})
+  D:Toggle({Name="Show Place Name", Flag="KW_HD_PLACE", Default=hud.showPlace, Callback=function(v) hud.showPlace=v end})
+  D:Toggle({Name="Show Username", Flag="KW_HD_USER", Default=hud.showUsername, Callback=function(v) hud.showUsername=v end})
+
+  local C = HUDTab:Section({Name="Crosshair", Side="Left"})
+  C:Toggle({Name="Enabled", Flag="KW_CH_EN", Default=hud.showCrosshair, Callback=function(v) hud.showCrosshair=v end})
+  C:Slider({Name="Gap (px)", Flag="KW_CH_GAP", Default=hud.crossGap, Min=3, Max=24, Callback=function(v) hud.crossGap=math.floor(v) end})
+  C:Slider({Name="Length (px)", Flag="KW_CH_LEN", Default=hud.crossLen, Min=4, Max=24, Callback=function(v) hud.crossLen=math.floor(v) end})
+  C:Slider({Name="Thickness", Flag="KW_CH_TH", Default=math.floor(hud.crossThick*10), Min=10, Max=40, Callback=function(v) hud.crossThick=clamp(v/10,0.5,4) end})
 end
 
 ----------------------------------------------------------------
@@ -928,7 +1066,7 @@ end
 ----------------------------------------------------------------
 -- Settings / Lifecycle
 ----------------------------------------------------------------
-local S = About:Section({Name="KittenWare", Side="Left"})
+local S = About:Section({Name="KuromiWare", Side="Left"})
 S:Keybind({Name="Toggle UI", Flag="KW_UI_TOG", Default=Enum.KeyCode.RightShift, Callback=function(_, newKey) if not newKey then GUI:Close() end end})
 S:Button({Name="Unload", Callback=function()
   disableESP(); if descAddConn then descAddConn:Disconnect() end; if descRemConn then descRemConn:Disconnect() end
