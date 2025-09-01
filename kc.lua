@@ -46,7 +46,7 @@ local ESPTab   = MainUI:Tab("Visual")
 local World    = MainUI:Tab("World")
 local HUDTab   = MainUI:Tab("HUD")
 local Config   = MainUI:Tab("Whitelist")
-local About    = MainUI:Tab("Settins")
+local About    = MainUI:Tab("Settings")
 
 ----------------------------------------------------------------
 -- GLOBAL COLORS
