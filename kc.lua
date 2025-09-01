@@ -1,20 +1,15 @@
---[[
-  KittenWare | 2025 — Client-Side Suite
-  | No Recoil
-  | ESP++ (Players: Skeleton | Corner & Filled Boxes | Tracers | Names | Health | Distance | Item ESP | Passive tag)
-  | ESP++ (Drones: finds any Model named "DroneModel" anywhere | Box | Label | Tracer | Distance)
-  | Aimbot (FOV | Smooth | Hold-to-aim | Wall-check | Distance cap | Passive-ignore | Velocity prediction | Min HP stop | stutter-fixed)
-  | Insta Reload (animation speed tweak, safe, tunable)
-  | World Visuals (Fullbright | FOV Lock)
-  | HUD (Watermark + FPS/Ping) + Crosshair overlay
-  | Friends / Ignore lists
-  | Performance Modes (ESP update throttling)
-
-  Notes:
-    - Watermark forced
-    - Off-screen arrows removed
-    - No themes
-]]
+print([[
+KittenWare On Top
+==========================================================
+|                        KITTENWARE                      |
+|--------------------------------------------------------|
+| Version: v1                                            |
+|                                                        |
+| Undected: Maybe:3                                      |
+| Loaded? Yes! Thanks for using KittenWare!              |
+| Status: Loaded and ready to use!                       |
+==========================================================
+]])
 
 if getgenv().KittenWareLoaded or getgenv().KittenWareLoading then return end
 getgenv().KittenWareLoading = true
