@@ -37,7 +37,7 @@ local function lerp(a,b,t) return a + (b-a)*t end
 -- UI (Exunys)
 ----------------------------------------------------------------
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Roblox-Functions-Library/main/Library.lua"))()
-local GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/AirHub-V2/main/src/UI%20Library.lua"))()
+local GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/kitty92pm/AirHub-V2/refs/heads/main/src/UI%20Library.lua"))()
 
 -- Tabs
 local MainUI   = GUI:Load()
