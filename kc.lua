@@ -3,7 +3,7 @@ KuromiWare On Top
 ==========================================================
 |                        KuromiWare                      |
 |--------------------------------------------------------|
-| Version: v1                                            |
+| Version: v1.01                                         |
 |                                                        |
 | Undected: Maybe:3                                      |
 | Loaded? Yes! Thanks for using KuromiWare               |
