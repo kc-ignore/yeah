@@ -6,7 +6,7 @@ KuromiWare On Top
 | Version: v1                                            |
 |                                                        |
 | Undected: Maybe:3                                      |
-| Loaded? Yes! Thanks for using KittenWare!              |
+| Loaded? Yes! Thanks for using KuromiWare               |
 | Status: Loaded and ready to use!                       |
 ==========================================================
 ]])
@@ -25,6 +25,7 @@ local Lighting    = game:GetService("Lighting")
 local Workspace   = game:GetService("Workspace")
 local Stats       = game:GetService("Stats")
 local MPS         = game:GetService("MarketplaceService")
+local VIM         = game:GetService("VirtualInputManager")
 
 local LP          = Players.LocalPlayer
 local Camera      = Workspace.CurrentCamera
@@ -42,10 +43,12 @@ local GUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/kitty92pm
 -- Tabs
 local MainUI   = GUI:Load()
 local Combat   = MainUI:Tab("Combat")
+local SilentTab = MainUI:Tab("Silent")
 local ESPTab   = MainUI:Tab("Visual")
 local World    = MainUI:Tab("World")
+local MiscTab = MainUI:Tab("Misc")
 local HUDTab   = MainUI:Tab("HUD")
-local Config   = MainUI:Tab("Whitelist")
+local Config   = MainUI:Tab("WL")
 local About    = MainUI:Tab("Settings")
 
 ----------------------------------------------------------------
@@ -86,11 +89,10 @@ if not hasDrawing then notify("KuromiWare","Drawing API not found | ESP & HUD di
 local esp = {
   enabled          = false,
   conn             = nil,
-  perfMode         = "Auto", -- Auto | Fast | Max
+  perfMode         = "Auto",
   updateEvery      = 1,
   counter          = 0,
 
-  -- Players
   showSkeleton     = true,
   showBox          = true,
   showCornerBox    = true,
@@ -127,7 +129,6 @@ local esp = {
   itemOffsetY      = 14,
   itemWhenNoTool   = false,
 
-  -- Drones
   droneEnabled     = true,
   droneColor       = Color3.fromRGB(255, 180, 60),
   droneName        = "DRONE",
@@ -180,12 +181,10 @@ end
 
 local function vp(v3) local v,o=Camera:WorldToViewportPoint(v3); return Vector2.new(v.X,v.Y), o end
 
--- Drawing constructors
 local function mkLine() local l=Drawing.new("Line") l.Visible=false l.Color=Color3.new(1,1,1) l.Thickness=esp.thicknessBase l.Transparency=esp.alphaBase return l end
 local function mkText() local t=Drawing.new("Text") t.Visible=false t.Center=true t.Size=14 t.Outline=true t.Transparency=1 t.Color=Theme.Secondary return t end
 local function mkSquare() local s=Drawing.new("Square") s.Visible=false s.Thickness=esp.thicknessBase s.Filled=false s.Color=Theme.Secondary s.Transparency=esp.alphaBase return s end
 
--- Player ESP buckets
 local buckets, signalMap = {}, {}
 local function getBucket(plr)
   if buckets[plr] then return buckets[plr] end
@@ -213,7 +212,6 @@ local function cleanPlayer(plr)
   local sigs=signalMap[plr]; if sigs then for _,c in ipairs(sigs) do if c then c:Disconnect() end end end signalMap[plr]=nil
 end
 
--- Drone ESP buckets
 local droneMap = {}  -- [Model] = bucket
 local function mkDroneBucket()
   return {
@@ -290,7 +288,6 @@ local function equippedName(ch)
   return nil
 end
 
--- Players update
 local function updatePlayer(plr)
   if plr==LP or ignorelist[plr.Name] then local b=buckets[plr]; if b then hideBucket(b) end return end
   if sameTeam(plr) then local b=buckets[plr]; if b then hideBucket(b) end return end
@@ -401,7 +398,6 @@ local function updatePlayer(plr)
   else b.tracer.Visible=false end
 end
 
--- Drones update
 local function updateDrone(model)
   local b = droneMap[model] or mkDroneBucket(); droneMap[model]=b
   if not esp.droneEnabled then hideDroneBucket(b) return end
@@ -446,7 +442,6 @@ local function updateDrone(model)
   else b.tracer.Visible=false end
 end
 
--- Track drone models by name anywhere in the game
 local DroneFolderSet = {} -- [Model] = true
 local function considerInstance(inst)
   if inst:IsA("Model") and inst.Name == "DroneModel" then
@@ -459,7 +454,6 @@ local descRemConn = Workspace.DescendantRemoving:Connect(function(inst)
   if DroneFolderSet[inst] then DroneFolderSet[inst]=nil cleanDrone(inst) end
 end)
 
--- Master ESP update
 local signalMapGlobal = {}
 local function hookSignals(plr)
   signalMap[plr] = signalMap[plr] or {}
@@ -496,7 +490,6 @@ local function disableESP()
   for m in pairs(droneMap) do cleanDrone(m) end
 end
 
--- ESP UI
 do
   local L = ESPTab:Section({Name="Players | Core", Side="Left"})
   L:Toggle({Name="Enable ESP", Flag="KW_ESP_EN", Default=false, Callback=function(v) if v then enableESP() else disableESP() end end})
@@ -577,6 +570,26 @@ local aim = {
   hudText       = nil,
 }
 
+local silentAim = {
+    enabled = false,
+    droneOnly = false,
+    target = nil,
+    teamCheck = false,
+    wallCheck = true,
+    passiveIgnore = true,
+    targetPart = "Head",
+    fov = 100,
+    maxDistance = 1200,
+    prediction = 0.1,
+    bulletSpeed = 300,
+    leadStrength = 1.0,
+    selectInterval = 0.1,
+    losRefresh = 0.20,
+    lastSelect = 0,
+    lastLOSCheck = 0,
+    FinalTarget = nil
+}
+
 if hasDrawing then
   aim.fovCircle = Drawing.new("Circle")
   aim.fovCircle.Visible=false
@@ -609,7 +622,7 @@ local function setAimHUD(txt)
   if aim.hudText then
     if aim.showHUD and txt then
       aim.hudText.Text = txt
-      aim.hudText.Position = Vector2.new(Camera.ViewportSize.X/2, 72) -- under the header
+      aim.hudText.Position = Vector2.new(Camera.ViewportSize.X/2, 72)
       aim.hudText.Visible = true
     else aim.hudText.Visible=false end
   end
@@ -619,16 +632,25 @@ local function updFOV()
   if not aim.fovCircle then return end
   local m=UIS:GetMouseLocation()
   aim.fovCircle.Position=Vector2.new(m.X,m.Y)
-  aim.fovCircle.Radius=aim.fov
+  if silentAim.enabled then
+    aim.fovCircle.Radius=silentAim.fov
+  else
+    aim.fovCircle.Radius=aim.fov
+  end
+  aim.fovCircle.Visible = silentAim.enabled or aim.enabled
 end
 
 local function canSee(part, char)
-  if not aim.wallCheck then return true end
-  local rp=RaycastParams.new(); rp.FilterType=Enum.RaycastFilterType.Blacklist
-  rp.FilterDescendantsInstances={LP.Character, char}
-  local o=Camera.CFrame.Position
-  local d=part.Position - o
-  return Workspace:Raycast(o,d,rp)==nil
+    if not aim.wallCheck then return true end
+    if not char then return false end
+    local RaycastOrigin = Camera.CFrame.Position
+
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LP.Character, char}
+
+    local result = Workspace:Raycast(RaycastOrigin, part.Position - RaycastOrigin, params)
+    return not result or result.Instance:IsDescendantOf(char)
 end
 
 local function validHealth(hum)
@@ -746,7 +768,6 @@ end
 local function enableAim() if aim.conn then aim.conn:Disconnect() end aim.conn = RunService.RenderStepped:Connect(stepAim); if aim.fovCircle then aim.fovCircle.Visible=true end end
 local function disableAim() if aim.conn then aim.conn:Disconnect() aim.conn=nil end if aim.fovCircle then aim.fovCircle.Visible=false end setAimHUD(nil) aim.currentPart=nil end
 
--- Aimbot UI
 do
   local L = Combat:Section({Name="Aimbot | Core", Side="Left"})
   L:Toggle({Name="Enabled", Flag="KW_AIM_EN", Default=false, Callback=function(v) if v then enableAim() else disableAim() end end})
@@ -770,8 +791,426 @@ do
   P:Slider({Name="Lead Strength", Flag="KW_AIM_LS", Default=math.floor(aim.leadStrength*10), Min=5, Max=20, Callback=function(v) aim.leadStrength=clamp(v/10,0.5,2.0) end})
 end
 
+
+local mt = getrawmetatable(game)
+local old_namecall = mt.__namecall
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    if silentAim.enabled and not silentAim.droneOnly and method == "FireServer" and tostring(self) == "FireEvent" and silentAim.FinalTarget then
+        args[1] = {{{
+            silentAim.FinalTarget.Character[silentAim.targetPart],
+            silentAim.FinalTarget.Character[silentAim.targetPart].Position,
+            Vector3.new(0,0,0),
+            Enum.Material.Plastic,
+            LP.Character.HumanoidRootPart.Position,
+            self.Parent.Flash
+        }}}
+        args[2] = true
+    end
+    return old_namecall(self, unpack(args))
+end)
+setreadonly(mt, true)
+
+local mouse = LP:GetMouse()
+local old_mouse_index
+old_mouse_index = hookmetamethod(mouse, "__index", function(self, key)
+    if silentAim.enabled and silentAim.droneOnly and (key == "Hit" or key == "Target" or key == "TargetFilter") and aim.currentPart then
+        if key == "Hit" then
+            return CFrame.new(aim.currentPart.Position)
+        elseif key == "Target" then
+            return aim.currentPart
+        elseif key == "TargetFilter" then
+            return aim.currentPart.Parent
+        end
+    end
+    return old_mouse_index(self, key)
+end)
+
 ----------------------------------------------------------------
--- Insta Reload (animation speed)
+----------------------------------------------------------------
+local semigod = {
+    enabled = false,
+    heartbeatConn = nil,
+}
+
+-- goofy ahh
+
+local function equipItem(itemName)
+    local item = LP.Backpack:WaitForChild(itemName, 2)
+    if not item then
+        notify("KuromiWare", "Could not find " .. itemName, 3)
+        return
+    end
+
+    item.Parent = LP.Character
+    task.wait(0.2)
+
+    local viewportSize = Camera.ViewportSize
+    local centerX = viewportSize.X / 2
+    local centerY = viewportSize.Y / 2
+
+    VIM:SendMouseButtonEvent(centerX, centerY, 0, true, game, 1)
+    task.wait(0.05)
+    VIM:SendMouseButtonEvent(centerX, centerY, 0, false, game, 1)
+end
+
+local function handleSemigod()
+    if not semigod.enabled then return end
+
+    local commandFunction = LP:WaitForChild("PlayerGui"):WaitForChild("ChatConsoleGui"):WaitForChild("CommandFunction")
+    
+    if not LP.Character:FindFirstChild("Medkit") and not LP.Backpack:FindFirstChild("Medkit") then
+        local args = {"!spawn medkit"}
+        commandFunction:InvokeServer(unpack(args))
+    end
+    if not LP.Character:FindFirstChild("Ballistics Helmet") and not LP.Backpack:FindFirstChild("Ballistics Helmet") then
+        local args = {"!spawn ball"}
+        commandFunction:InvokeServer(unpack(args))
+    end
+    if not LP.Character:FindFirstChild("Ballistics Vest") and not LP.Backpack:FindFirstChild("Ballistics Vest") then
+        local args = {"!spawn ballisticsvest"}
+        commandFunction:InvokeServer(unpack(args))
+    end
+    if not LP.Character:FindFirstChild("Wrench") and not LP.Backpack:FindFirstChild("Wrench") then
+        local args = {"!spawn wrench"}
+        commandFunction:InvokeServer(unpack(args))
+    end
+
+    task.wait(1) 
+
+    if not LP.Character:FindFirstChild("Ballistics Helmet") then
+        equipItem("Ballistics Helmet")
+    end
+    if not LP.Character:FindFirstChild("Ballistics Vest") then
+        equipItem("Ballistics Vest")
+    end
+
+    if semigod.heartbeatConn then semigod.heartbeatConn:Disconnect() end
+    semigod.heartbeatConn = RunService.Heartbeat:Connect(function()
+        if not semigod.enabled then
+            if semigod.heartbeatConn then semigod.heartbeatConn:Disconnect(); semigod.heartbeatConn = nil end
+            return
+        end
+        local char = LP.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.Health > 0 and hum.Health < 100 then
+            local medkit = LP.Backpack:FindFirstChild("Medkit")
+            if medkit then
+                local originalParent = medkit.Parent
+                medkit.Parent = char
+                task.wait()
+                local actionMain = medkit:FindFirstChild("ActionMain")
+                if actionMain and actionMain:IsA("RemoteEvent") then
+                    actionMain:FireServer("heal", char)
+                end
+                task.wait()
+                medkit.Parent = originalParent
+            else
+                local equippedMedkit = char:FindFirstChild("Medkit")
+                if equippedMedkit then
+                    local actionMain = equippedMedkit:FindFirstChild("ActionMain")
+                    if actionMain and actionMain:IsA("RemoteEvent") then
+                        actionMain:FireServer("heal", char)
+                    end
+                end
+            end
+
+            local wrench = LP.Backpack:FindFirstChild("Wrench")
+            if wrench then
+                local originalParent = wrench.Parent
+                wrench.Parent = char
+                task.wait()
+                local actionMain = wrench:FindFirstChild("ActionMain")
+                if actionMain and actionMain:IsA("RemoteEvent") then
+                    actionMain:FireServer("heal", char)
+                end
+                task.wait()
+                wrench.Parent = originalParent
+            else
+                local equippedWrench = char:FindFirstChild("Wrench")
+                if equippedWrench then
+                    local actionMain = equippedWrench:FindFirstChild("ActionMain")
+                    if actionMain and actionMain:IsA("RemoteEvent") then
+                        actionMain:FireServer("heal", char)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function enableSemigod()
+    semigod.enabled = true
+    task.spawn(handleSemigod)
+end
+
+local function disableSemigod()
+    semigod.enabled = false
+    if semigod.heartbeatConn then
+        semigod.heartbeatConn:Disconnect()
+        semigod.heartbeatConn = nil
+    end
+end
+
+----------------------------------------------------------------
+----------------------------------------------------------------
+local ir = {
+  enabled   = true,
+  speed     = 4.0,
+  cooldown  = 300,   -- ms
+  interval  = 0.06,  -- s
+  conn      = nil,
+  acc       = 0,
+  touched   = {},
+}
+local function isReloadTrack(track)
+  local n=(track.Name or ""):lower()
+  if n:find("reload") or n:find("mag") or n:find("clip") then return true end
+  local anim=track.Animation
+  if anim and anim.AnimationId then
+    local id=tostring(anim.AnimationId):lower()
+    if id:find("reload") or id:find("mag") or id:find("clip") then return true end
+  end
+  return false
+end
+local function irStep(dt)
+  ir.acc += dt
+  if ir.acc < ir.interval then return end
+  ir.acc = 0
+  if not ir.enabled then return end
+  local ch=LP.Character; if not ch then return end
+  local hum=ch:FindFirstChildOfClass("Humanoid"); if not hum then return end
+  local animator=hum:FindFirstChildOfClass("Animator"); if not animator then return end
+  for _,track in ipairs(animator:GetPlayingAnimationTracks()) do
+    if isReloadTrack(track) then
+      local now=os.clock()
+      if ir.touched[track] and (now - ir.touched[track]) * 1000 < ir.cooldown then
+      else
+        ir.touched[track]=now
+        pcall(function() track:AdjustSpeed(clamp(ir.speed,1,20)) end)
+      end
+    end
+  end
+end
+local function enableIR() if ir.conn then ir.conn:Disconnect() end ir.enabled=true ir.acc=0 ir.conn=RunService.Heartbeat:Connect(irStep) end
+local function disableIR() if ir.conn then ir.conn:Disconnect() ir.conn=nil end ir.enabled=false end
+
+do
+  local L = Combat:Section({Name="Insta Reload (Speed)", Side="Left"})
+  L:Toggle({Name="Enabled", Flag="KW_IR_EN", Default=ir.enabled, Callback=function(v) if v then enableIR() else disableIR() end end})
+  L:Slider({Name="Reload Speed ×", Flag="KW_IR_SPD", Default=ir.speed, Min=1, Max=20, Callback=function(v) ir.speed=v end})
+  local R = Combat:Section({Name="IR | Advanced", Side="Right"})
+  R:Slider({Name="Per-Reload Cooldown (ms)", Flag="KW_IR_CD", Default=ir.cooldown, Min=100, Max=1000, Callback=function(v) ir.cooldown=math.floor(v) end})
+  R:Slider({Name="Scan Interval (ms)", Flag="KW_IR_IV", Default=math.floor(ir.interval*1000), Min=30, Max=150, Callback=function(v) ir.interval=clamp(v/1000,0.03,0.15) end})
+end
+
+
+do
+  local L = Combat:Section({Name="Aimbot | Core", Side="Left"})
+  L:Toggle({Name="Enabled", Flag="KW_AIM_EN", Default=false, Callback=function(v) if v then enableAim() else disableAim() end end})
+  L:Toggle({Name="Hold RMB", Flag="KW_AIM_HOLD", Default=false, Callback=function(v) aim.holdToUse=v end})
+  L:Keybind({Name="Toggle Key", Flag="KW_AIM_KEY", Default=aim.toggleKey, Callback=function(k) if typeof(k)=="EnumItem" then aim.toggleKey=k end end})
+  L:Slider({Name="FOV", Flag="KW_AIM_FOV", Default=aim.fov, Min=40, Max=600, Callback=function(v) aim.fov=v end})
+  L:Slider({Name="Smooth", Flag="KW_AIM_SM", Default=math.floor(aim.smooth*100), Min=1, Max=100, Callback=function(v) aim.smooth=clamp(v/100,0.01,1) end})
+  L:Slider({Name="Max Distance", Flag="KW_AIM_MD", Default=aim.maxDistance, Min=200, Max=6000, Callback=function(v) aim.maxDistance=v end})
+
+  local F = Combat:Section({Name="Aimbot | Filters", Side="Right"})
+  F:Toggle({Name="Team Check", Flag="KW_AIM_TC", Default=aim.teamCheck, Callback=function(v) aim.teamCheck=v end})
+  F:Toggle({Name="Wall Check", Flag="KW_AIM_WC", Default=aim.wallCheck, Callback=function(v) aim.wallCheck=v end})
+  F:Toggle({Name="Ignore Passive", Flag="KW_AIM_PI", Default=aim.passiveIgnore, Callback=function(v) aim.passiveIgnore=v end})
+  F:Dropdown({Name="Target Part", Flag="KW_AIM_TP", Content={"Head","HumanoidRootPart"}, Default=aim.targetPart, Callback=function(v) aim.targetPart=v end})
+  F:Slider({Name="Min HP to Lock", Flag="KW_AIM_MHP", Default=aim.minHPToLock, Min=0, Max=100, Callback=function(v) aim.minHPToLock=math.max(0, math.floor(v)) end})
+  F:Slider({Name="Select Interval (ms)", Flag="KW_AIM_SI", Default=math.floor(aim.selectInterval*1000), Min=30, Max=200, Callback=function(v) aim.selectInterval=clamp(v/1000,0.03,0.2) end})
+
+  local P = Combat:Section({Name="Aimbot | Prediction", Side="Left"})
+  P:Toggle({Name="Velocity Prediction", Flag="KW_AIM_PR", Default=false, Callback=function(v) aim.prediction=v end})
+  P:Slider({Name="Bullet Speed", Flag="KW_AIM_BS", Default=aim.bulletSpeed, Min=100, Max=1200, Callback=function(v) aim.bulletSpeed=math.floor(v) end})
+  P:Slider({Name="Lead Strength", Flag="KW_AIM_LS", Default=math.floor(aim.leadStrength*10), Min=5, Max=20, Callback=function(v) aim.leadStrength=clamp(v/10,0.5,2.0) end})
+end
+
+do
+    local S = MiscTab:Section({Name="Semigod", Side="Left"})
+    S:Toggle({Name="Enabled", Flag="KW_SEMIGOD_EN", Default=false, Callback=function(v) if v then enableSemigod() else disableSemigod() end end})
+    
+    local SA = MiscTab:Section({Name="Drone Silent Aim", Side="Right"})
+    SA:Toggle({Name="Enabled", Flag="KW_SA_DRONE", Default=false, Callback=function(v) silentAim.droneOnly=v end})
+
+    local KA = MiscTab:Section({Name="Kill All", Side="Left"})
+    KA:Button({Name="Execute", Callback=function()
+        task.spawn(function()
+            local commandFunction = LP:WaitForChild("PlayerGui"):WaitForChild("ChatConsoleGui"):WaitForChild("CommandFunction")
+            commandFunction:InvokeServer(unpack({"!spawn l9"}))
+            
+            local Gun = LP.Backpack:WaitForChild("L96A1", 2)
+            if not Gun then notify("KuromiWare", "L96A1 not found", 3) return end
+            
+            local FireEvent = Gun:WaitForChild("FireEvent", 1)
+            if not FireEvent then notify("KuromiWare", "FireEvent not found", 3) return end
+
+            local gunSettings
+            pcall(function() gunSettings = require(Gun.Settings) end)
+            local waitTime = (gunSettings and gunSettings.waittime) or 0.05
+
+            local targets = {}
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LP and player.Character and player.Character:FindFirstChildOfClass("Humanoid") and player.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+                    table.insert(targets, player)
+                end
+            end
+
+            while #targets > 0 do
+                for i = #targets, 1, -1 do
+                    local player = targets[i]
+                    local char = player and player.Character
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
+                    
+                    if hum and hum.Health > 0 then
+                        local head = char:FindFirstChild("Head")
+                        if head then
+                            pcall(function()
+                                FireEvent:FireServer({
+                                    {{{
+                                        head,
+                                        head.Position,
+                                        Vector3.new(0, 0, 0),
+                                        Enum.Material.Plastic,
+                                        LP.Character.Head.Position,
+                                        Gun.Flash
+                                    }}}
+                                }, true, nil, Vector3.new(0, 0, 0), nil, 1, waitTime, 3.6)
+                            end)
+                        end
+                    else
+                        table.remove(targets, i)
+                    end
+                end
+                task.wait(waitTime)
+            end
+
+            pcall(function()
+                Gun:Destroy()
+            end)
+        end)
+    end})
+end
+
+do
+    local L = SilentTab:Section({Name="Silent Aim | Core", Side="Left"})
+    L:Toggle({Name="Enabled", Flag="KW_SA_EN", Default=false, Callback=function(v) silentAim.enabled=v end})
+    L:Toggle({Name="Hold RMB", Flag="KW_SA_HOLD", Default=false, Callback=function(v) silentAim.holdToUse=v end})
+    L:Keybind({Name="Toggle Key", Flag="KW_SA_KEY", Default=Enum.KeyCode.Q, Callback=function(k) if typeof(k)=="EnumItem" then silentAim.toggleKey=k end end})
+    L:Slider({Name="FOV", Flag="KW_SA_FOV", Default=silentAim.fov, Min=40, Max=600, Callback=function(v) silentAim.fov=v end})
+    L:Slider({Name="Max Distance", Flag="KW_SA_MD", Default=silentAim.maxDistance, Min=200, Max=6000, Callback=function(v) silentAim.maxDistance=v end})
+
+    local F = SilentTab:Section({Name="Silent Aim | Filters", Side="Right"})
+    F:Toggle({Name="Team Check", Flag="KW_SA_TC", Default=silentAim.teamCheck, Callback=function(v) silentAim.teamCheck=v end})
+    F:Toggle({Name="Wall Check", Flag="KW_SA_WC", Default=silentAim.wallCheck, Callback=function(v) silentAim.wallCheck=v end})
+    F:Toggle({Name="Ignore Passive", Flag="KW_SA_PI", Default=silentAim.passiveIgnore, Callback=function(v) silentAim.passiveIgnore=v end})
+    F:Dropdown({Name="Target Part", Flag="KW_SA_TP", Content={"Head","HumanoidRootPart"}, Default=silentAim.targetPart, Callback=function(v) silentAim.targetPart=v end})
+    F:Slider({Name="Min HP to Lock", Flag="KW_SA_MHP", Default=1, Min=0, Max=100, Callback=function(v) silentAim.minHPToLock=math.max(0, math.floor(v)) end})
+    F:Slider({Name="Select Interval (ms)", Flag="KW_SA_SI", Default=math.floor(silentAim.selectInterval*1000), Min=30, Max=200, Callback=function(v) silentAim.selectInterval=clamp(v/1000,0.03,0.2) end})
+
+    local P = SilentTab:Section({Name="Silent Aim | Prediction", Side="Left"})
+    P:Toggle({Name="Velocity Prediction", Flag="KW_SA_PR", Default=false, Callback=function(v) silentAim.prediction=v end})
+    P:Slider({Name="Bullet Speed", Flag="KW_SA_BS", Default=silentAim.bulletSpeed, Min=100, Max=1200, Callback=function(v) silentAim.bulletSpeed=math.floor(v) end})
+    P:Slider({Name="Lead Strength", Flag="KW_SA_LS", Default=math.floor(silentAim.leadStrength*10), Min=5, Max=20, Callback=function(v) silentAim.leadStrength=clamp(v/10,0.5,2.0) end})
+end
+
+local function silentCanSee(TargetCharacter)
+	if not silentAim.wallCheck then return true end
+	if not TargetCharacter then return false end
+	local RaycastOrigin = Camera.CFrame.Position
+
+	local partsToCheck = {"Head", "HumanoidRootPart", "Torso"}
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Blacklist
+
+	for _, partName in ipairs(partsToCheck) do
+		local TargetPart = TargetCharacter:FindFirstChild(partName)
+		if TargetPart then
+			local direction = TargetPart.Position - RaycastOrigin
+			params.FilterDescendantsInstances = {LP.Character}
+			local result = Workspace:Raycast(RaycastOrigin, direction, params)
+
+			if result then
+				if result.Instance:IsDescendantOf(TargetCharacter) then
+					return true
+				end
+			else
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+RunService.RenderStepped:Connect(function()
+    if not silentAim.enabled then silentAim.FinalTarget = nil return end
+
+    local isFinalTargetValid = false
+    if silentAim.FinalTarget and silentAim.FinalTarget.Character and silentAim.FinalTarget.Character:FindFirstChild("HumanoidRootPart") then
+        local TargetPart = silentAim.FinalTarget.Character.HumanoidRootPart
+        local TargetPos, onScreen = Camera:WorldToViewportPoint(TargetPart.Position)
+        local MousePos = UIS:GetMouseLocation()
+
+        if onScreen and ((TargetPos.X - MousePos.X)^2 + (TargetPos.Y - MousePos.Y)^2) <= (silentAim.fov^2) and
+           not silentAim.FinalTarget.Character:FindFirstChild("ForceField") and
+           silentAim.FinalTarget.Character.Humanoid.Health > 0 and
+           (not silentAim.wallCheck or silentCanSee(silentAim.FinalTarget.Character)) then
+         isFinalTargetValid = true
+        end
+    end
+
+    if not isFinalTargetValid then
+        silentAim.FinalTarget = nil
+        if tick() - silentAim.lastSelect > silentAim.selectInterval then
+            silentAim.lastSelect = tick()
+            local PotentialTargets = {}
+            for _, Player in pairs(Players:GetPlayers()) do
+                if Player ~= LP and Player.Character and not ignorelist[Player.Name] and not (silentAim.teamCheck and sameTeam(Player)) then
+                    local TargetPart = Player.Character:FindFirstChild("HumanoidRootPart")
+                    if TargetPart then
+                        local TargetPos, onScreen = Camera:WorldToViewportPoint(TargetPart.Position)
+                        local MousePos = UIS:GetMouseLocation()
+                        if onScreen and ((TargetPos.X - MousePos.X)^2 + (TargetPos.Y - MousePos.Y)^2) <= (silentAim.fov^2) and
+                           not Player.Character:FindFirstChild("ForceField") and
+                           Player.Character.Humanoid.Health > 0 then
+                            table.insert(PotentialTargets, Player)
+                        end
+                    end
+                end
+            end
+
+            if #PotentialTargets > 0 then
+                table.sort(PotentialTargets, function(a, b)
+                    if not (a.Character and a.Character:FindFirstChild("HumanoidRootPart") and b.Character and b.Character:FindFirstChild("HumanoidRootPart") and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")) then return false end
+                    local a_dist = (a.Character.HumanoidRootPart.Position - LP.Character.HumanoidRootPart.Position).magnitude
+                    local b_dist = (b.Character.HumanoidRootPart.Position - LP.Character.HumanoidRootPart.Position).magnitude
+                    return a_dist < b_dist
+                end)
+
+                if not silentAim.wallCheck then
+                    silentAim.FinalTarget = PotentialTargets[1]
+                else
+                    for _, Player in ipairs(PotentialTargets) do
+                        if Player.Character and silentCanSee(Player.Character) then
+                            silentAim.FinalTarget = Player
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+
+----------------------------------------------------------------
 ----------------------------------------------------------------
 local ir = {
   enabled   = true,
@@ -824,7 +1263,6 @@ do
 end
 
 ----------------------------------------------------------------
--- World / Camera
 ----------------------------------------------------------------
 local fb = { enabled=false, brightness=3, clock=14, noShadows=true, noFog=true, conn=nil, saved={}, cc=nil }
 local fov = { lock=false, value=80, conn=nil }
@@ -858,7 +1296,6 @@ do
 end
 
 ----------------------------------------------------------------
--- HUD | Modern Centered Header + Crosshair
 ----------------------------------------------------------------
 local placeName = "Place"
 pcall(function()
@@ -886,14 +1323,12 @@ local hud = {
   showPlace       = true,
   showUsername    = false,
 
-  -- Crosshair
   showCrosshair   = true,
   crossGap        = 7,
   crossLen        = 9,
   crossThick      = 1.5,
 }
 
--- Drawing objects for header
 local headerBar, headerShadow, headerText, accentLine
 local statText = nil
 if hasDrawing then
@@ -914,13 +1349,11 @@ if hasDrawing then
   accentLine.Visible=true; accentLine.Thickness=2
 end
 
--- Crosshair
 local crossLines = {}
 if hasDrawing then
   for i=1,4 do local l=Drawing.new("Line"); l.Color=Theme.Secondary; l.Thickness=hud.crossThick; l.Visible=false; crossLines[i]=l end
 end
 
--- Stats helpers
 local pingItem = Stats and Stats.Network and Stats.Network.ServerStatsItem and Stats.Network.ServerStatsItem["Data Ping"] or nil
 local fpsCounter,lastFPS,fpsAccum = 0,60,0
 
@@ -942,15 +1375,16 @@ end
 RunService.RenderStepped:Connect(function(dt)
   if not hasDrawing then return end
 
-  -- FPS calc
+  if silentAim.enabled or aim.enabled then
+    updFOV()
+  end
+
   fpsAccum += dt; fpsCounter += 1
   if fpsAccum >= 0.25 then lastFPS = math.floor(fpsCounter / fpsAccum + 0.5); fpsAccum, fpsCounter = 0, 0 end
 
-  -- Header content
   local left, right = buildHeaderStrings()
   local combined = (right ~= "" and (left.." | "..right)) or left
 
-  -- Measure width (approx)
   local vw = Camera.ViewportSize.X
   local vh = Camera.ViewportSize.Y
   local textSize = hud.headerFontSize
@@ -963,7 +1397,6 @@ RunService.RenderStepped:Connect(function(dt)
   local x = math.floor((vw - w) / 2)
   local y = 8
 
-  -- Background bar + shadow
   if hud.showHeaderBar then
     headerShadow.Position     = Vector2.new(x, y+2)
     headerShadow.Size         = Vector2.new(w, h)
@@ -979,7 +1412,6 @@ RunService.RenderStepped:Connect(function(dt)
     headerBar.Visible    = false
   end
 
-  -- Accent pulse color
   local accent = Theme.Accent
   if hud.accentPulse then
     local hue = (os.clock() * hud.accentSpeed) % 1
@@ -995,19 +1427,16 @@ RunService.RenderStepped:Connect(function(dt)
     accentLine.Visible = false
   end
 
-  -- Centered text
   headerText.Text      = combined
   headerText.Color     = Theme.Secondary
   headerText.Position  = Vector2.new(vw/2, y + h/2 + 1)
   headerText.Visible   = true
 
-  -- Subtext (credits subtle accent)
   statText.Text        = " "
   statText.Color       = accent
   statText.Position    = Vector2.new(vw/2, y + h + 14)
   statText.Visible     = true
 
-  -- Crosshair
   local m=UIS:GetMouseLocation()
   local cgap,clen=hud.crossGap,hud.crossLen
   local pts={{Vector2.new(m.X - cgap - clen, m.Y), Vector2.new(m.X - cgap, m.Y)},
@@ -1023,7 +1452,6 @@ RunService.RenderStepped:Connect(function(dt)
   end
 end)
 
--- HUD UI
 do
   local H = HUDTab:Section({Name="Header | Centered Banner", Side="Left"})
   H:Toggle({Name="Show Header Bar", Flag="KW_HD_BAR", Default=hud.showHeaderBar, Callback=function(v) hud.showHeaderBar=v end})
@@ -1052,7 +1480,6 @@ do
 end
 
 ----------------------------------------------------------------
--- Config | Lists
 ----------------------------------------------------------------
 do
   local R = Config:Section({Name="Friends | Ignores", Side="Left"})
@@ -1064,29 +1491,23 @@ do
 end
 
 ----------------------------------------------------------------
--- Settings / Lifecycle
 ----------------------------------------------------------------
 local S = About:Section({Name="KuromiWare", Side="Left"})
 S:Keybind({Name="Toggle UI", Flag="KW_UI_TOG", Default=Enum.KeyCode.RightShift, Callback=function(_, newKey) if not newKey then GUI:Close() end end})
 S:Button({Name="Unload", Callback=function()
   disableESP(); if descAddConn then descAddConn:Disconnect() end; if descRemConn then descRemConn:Disconnect() end
-  disableAim(); disableIR(); disableFB(); disableFOV()
+  disableAim(); disableIR(); disableFB(); disableFOV(); disableSemigod()
   GUI:Unload(); getgenv().KittenWareLoaded=nil
 end})
 
--- Quick hotkeys
 UIS.InputBegan:Connect(function(i,gpe)
   if gpe then return end
   if i.KeyCode==Enum.KeyCode.N then if nrEnabled then disableNR() else enableNR() end end
   if i.KeyCode==Enum.KeyCode.B then if esp.enabled then disableESP() else enableESP() end end
 end)
 
--- Start essentials
 enableIR()
 
-game:BindToClose(function()
-  disableESP(); disableAim(); disableIR(); disableFB(); disableFOV()
-end)
 
 getgenv().KittenWareLoaded = true
 getgenv().KittenWareLoading = nil
